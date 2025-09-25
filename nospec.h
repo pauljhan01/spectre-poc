@@ -7,7 +7,7 @@ static inline unsigned long array_index_mask_nospec(unsigned long index,
 	 * into account the value of @index under speculation.
 	 */
 	// OPTIMIZER_HIDE_VAR(index);
-    #define BITS_PER_LONG 32
+    #define BITS_PER_LONG sizeof(long)*8
 	return ~(long)(index | (size - 1UL - index)) >> (BITS_PER_LONG - 1);
 }
 
