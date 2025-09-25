@@ -4,5 +4,8 @@
 mac:
 	clang spectre.c -o spectre
 
+gcc:
+	gcc spectre.c -o spectre
+
 clean:
 	rm spectre
