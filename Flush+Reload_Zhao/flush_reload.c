@@ -50,7 +50,7 @@ uint64_t calibrate_latency() {
     // hit latency we measured is the L1 latency, while we need the threshold
     // for L3 hits. This is just a heuristic and there are better ways to
     // accurately determine the L3 latency
-    threshold = ((3 * miss) + hit) / 4;
+    threshold = ((2 * miss) + hit) / 3;
     printf("Avg. hit latency: %" PRIu64 ", Avg. miss latency: %" PRIu64
            ", Threshold: %" PRIu64 "\n",
            hit, miss, threshold);
@@ -114,7 +114,8 @@ void flush_reload_recv(uint64_t start_tsc, size_t msg_len, uint8_t *pages,
 
         // Receiver reloads
         unsigned char raw_c = '\0';
-        for (size_t j = 0; j < SYMBOL_CNT; j++) { // SYMBOL_CNT=256
+        for (size_t _j = 0; _j < SYMBOL_CNT; _j++) { // SYMBOL_CNT=256
+            size_t j = (_j*167 + 13)%SYMBOL_CNT;
             uint64_t start = _timer_start();
             _maccess(pages + j * PAGE_SIZE);
             uint64_t lat = _timer_end() - start;
