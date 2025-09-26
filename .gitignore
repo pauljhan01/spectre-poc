@@ -1,2 +1,5 @@
 !spectre.*
 spectre
+*.bin
+*.o
+*.d

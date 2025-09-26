@@ -1,4 +1,4 @@
-#include "../inline_asm.h"
+#include "../lib/inline_asm.h"
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
