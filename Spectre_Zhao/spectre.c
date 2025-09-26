@@ -1,5 +1,5 @@
-#include "./lib/inline_asm.h"
-#include "./lib/color.h"
+#include "../lib/inline_asm.h"
+#include "../lib/color.h"
 #include <assert.h>
 #include <ctype.h>
 #include <inttypes.h>
