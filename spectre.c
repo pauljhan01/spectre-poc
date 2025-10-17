@@ -15,15 +15,30 @@
 void victim_function(uint32_t index);
 
 int main (void){
-    uint32_t index = 30;
     victim_function(index);
 }
 
-void victim_function(uint32_t index){
-    static uint32_t length = 15;
-    index = array_index_nospec(index, length);
+uint32_t array_idx[8] = {0, 1, 2, 3, 4, 5, 6, 7};
+volatile uint32_t arr_size = 8;
+uint32_t victim_function(uint32_t * arr, uint32_t index, uint32_t stride){
+    /*
+        This Spectre PoC relies on realloc failing due to not enough memory for reallocation
+        When this occurs, arr_size would double in size due to being speculatively executed
+        Yet, access to the public array would occur during the speculation window, resulting in an array out of bounds access.
+        This leaves this code vulnerable to a Spectre attack that utilizes a side channel attack to extract the private index of the data array
+    */
+    if(arr_size < index){
+        array_idx = realloc(arr_size*2);
+        arr_size *= 2;
+        //I would like to fill the array after it is resized with new indices that are randomly generated
+        //However, this may exceed the speculation window in which we can extract secrets so the resized array will just have to be filled with 0s
+        //This should be ok
+    }
+    
+    uint32_t new_idx = array_idx_nospec(index, arr_size);
+    uint32_t secret_idx = array_idx[new_idx];
 
-    printf("Index: %d\n", index);
+    return arr[secret_idx * stride];
 }
 
 // int main(int argc, char **argv) {
