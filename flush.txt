@@ -1,4 +1,0 @@
-for 1000 times{
-	feed some index into victim function with a page you allocated
-	on the last iteration of the loop, you can employ the side channel attack during the speculation window
-	
