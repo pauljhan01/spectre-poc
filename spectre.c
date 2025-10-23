@@ -18,7 +18,7 @@ int main (void){
     victim_function(index);
 }
 
-uint32_t array_idx[8] = {0, 1, 2, 3, 4, 5, 6, 7};
+uint8_t array_idx[8] = {0, 1, 2, 3, 4, 5, 6, 7};
 volatile uint32_t arr_size = 8;
 uint32_t victim_function(uint32_t * arr, uint32_t index, uint32_t stride){
     /*
@@ -41,10 +41,3 @@ uint32_t victim_function(uint32_t * arr, uint32_t index, uint32_t stride){
     return arr[secret_idx * stride];
 }
 
-// int main(int argc, char **argv) {
-//     if (argc == 2 && strcmp(argv[1], "naive") == 0) {
-//         printf("Using a naive Spectre PoC\n");
-//     } else {
-//     }
-//     return 0;
-// }
