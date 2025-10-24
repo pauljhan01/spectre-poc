@@ -27,7 +27,7 @@ uint32_t array_idx_nospec(uint32_t index, size_t size) {
 #define PAGE_SIZE 4096
 #define NUM_PAGES 256
 uint32_t* page_init() {
-    uint32_t *page = aligned_alloc(PAGE_SIZE, NUM_PAGES * PAGE_SIZE);
+    uint32_t *page = malloc(NUM_PAGES * PAGE_SIZE);
     
     if (page == NULL) {
         perror("Page allocation failed");
@@ -60,10 +60,20 @@ uint32_t* array_init(){
 
 uint32_t victim_function(uint32_t ** array, uint32_t * page, uint32_t index, uint32_t stride){
     if(array_size < index){
-        * array = realloc(* array, array_size * 2 * sizeof(uint32_t));
+        uint32_t * new_array = realloc(* array, array_size * 2 * sizeof(uint32_t));
         array_size *= 2;
+        if (new_array == NULL) {
+            printf("realloc failed! arr_size would be %zu but allocation failed\n", 
+                array_size * 2);
+            
+        } else {
+            *array = new_array;
+            printf("realloc succeed! arr_size is %zux\n", 
+                array_size);
+            memset(*array, 0, array_size * sizeof(uint32_t));
+        }
     }
-    
+
     uint32_t new_idx = array_idx_nospec(index, array_size);
     uint32_t secret = (*array)[new_idx];
 
@@ -78,7 +88,7 @@ int attacker_function(){
     size_t stride = PAGE_SIZE;
     //todo calling victim function in a loop until it failed
     
-    for (uint32_t i = 1024; i < 50000; i *= 2) {
+    for (uint32_t i = 12; i < 1600000; i *= 2) {
         printf("Trying with index: %u, current arr_size: %zu\n", i, array_size);
         victim_function(&array, page, i, 4096);
         
@@ -93,7 +103,7 @@ int attacker_function(){
 }
 
 int main (void){
-    set_heap_limit(5 * 1024 * 1024);
+    set_heap_limit(10 * 1024 * 1024);
     attacker_function();
     return 0;
 }
