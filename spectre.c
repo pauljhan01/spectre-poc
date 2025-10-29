@@ -12,6 +12,7 @@
 #include <x86intrin.h>
 #include <errno.h>
 #include <sys/resource.h> 
+#include <mimalloc-2.2/mimalloc.h>
 
 
 const char *secret = "!";

@@ -1,5 +1,5 @@
 all:
-	gcc spectre.c -o spectre
+	gcc -o spectre /usr/local/lib/mimalloc-2.2/mimalloc.o spectre.c
 
 mac:
 	clang spectre.c -o spectre
