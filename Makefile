@@ -1,5 +1,5 @@
 all:
-	gcc -g spectre.c -o spectre
+	gcc -g -O0 spectre.c -o spectre
 
 mac:
 	clang spectre.c -o spectre

