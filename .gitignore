@@ -3,3 +3,4 @@ spectre
 *.bin
 *.o
 *.d
+*.s

