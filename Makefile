@@ -7,6 +7,9 @@ asm:
 mac:
 	clang spectre.c -o spectre
 
+watch:
+	watch -n 0.2 ./spectre
+
 gcc_a:
 	gcc attacker.c -o attack
 
