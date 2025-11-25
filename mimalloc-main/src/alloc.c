@@ -253,13 +253,27 @@ void* mi_expand(void* p, size_t newsize) mi_attr_noexcept {
   return p; // it fits
   #endif
 }
+#include <stdio.h>
+#include <immintrin.h>
 
+// printf("Address of realloc function: %p\n", (void*)realloc);
+// printf("Address of mi_realloc function: %p\n", (void*)mi_realloc);
+// printf("Address of size function: %p\n", (void*)_mi_usable_size);
+// printf("Difference: %ld\n", (long)((uintptr_t)mi_realloc - (uintptr_t)_mi_usable_size));
+// printf("Address with difference: %p\n", mi_realloc - 3776);
+
+size_t size_realloc = 0;
 void* _mi_heap_realloc_zero(mi_heap_t* heap, void* p, size_t newsize, bool zero) mi_attr_noexcept {
   // if p == NULL then behave as malloc.
   // else if size == 0 then reallocate to a zero-sized block (and don't return NULL, just as mi_malloc(0)).
   // (this means that returning NULL always indicates an error, and `p` will not have been freed in that case.)
-  const size_t size = _mi_usable_size(p,"mi_realloc"); // also works if p == NULL (with size 0)
-  if mi_unlikely(newsize <= size && newsize >= (size / 2) && newsize > 0) {  // note: newsize must be > 0 or otherwise we return NULL for realloc(NULL,0)
+  size_realloc = _mi_usable_size(p,"mi_realloc"); // also works if p == NULL (with size 0)  
+  size_t size = size_realloc;
+  _mm_clflush((void *)&size_realloc);
+  _mm_mfence();
+  _mm_lfence();
+
+  if mi_unlikely(newsize <= size_realloc && newsize >= (size_realloc / 2) && newsize > 0) {  // note: newsize must be > 0 or otherwise we return NULL for realloc(NULL,0)
     mi_assert_internal(p!=NULL);
     // todo: do not track as the usable size is still the same in the free; adjust potential padding?
     // mi_track_resize(p,size,newsize)

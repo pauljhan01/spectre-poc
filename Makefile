@@ -16,8 +16,14 @@ gcc_a:
 mwatch:
 	watch -n 0.2 LD_PRELOAD=$(realpath ./mimalloc-main/out/libmimalloc.so) ./mspectre
 
-masm:
+compileMI:
+	cd mimalloc-main && mkdir -p out && cd out && cmake .. && make -j4
+
+mspectre:
 	gcc -g mspectre.c -o mspectre
+
+masm:
+	gcc -S mspectre.c -o mspectre.s
 
 clean:
 	rm spectre
